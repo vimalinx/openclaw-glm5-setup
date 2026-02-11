@@ -42,17 +42,25 @@ else
   cp "$MODELS_FILE" "$BACKUP"
   echo "💾 已备份: $BACKUP"
 
-  # 使用 Python 脚本添加 GLM-5（更可靠）
+  # 创建临时 Python 脚本
   echo "📝 添加 GLM-5 定义..."
 
-  python3 << 'PYTHON_SCRIPT'
+  cat > /tmp/add_glm5.py << 'EOF'
 import sys
 import re
 
+if len(sys.argv) < 2:
+    print("❌ 错误: 缺少文件路径参数", file=sys.stderr)
+    sys.exit(1)
+
 file_path = sys.argv[1]
 
-with open(file_path, 'r') as f:
-    content = f.read()
+try:
+    with open(file_path, 'r') as f:
+        content = f.read()
+except Exception as e:
+    print(f"❌ 无法读取文件: {e}", file=sys.stderr)
+    sys.exit(1)
 
 # 检查是否已存在
 if '"glm-5":' in content:
@@ -63,7 +71,7 @@ if '"glm-5":' in content:
 glm5_def = '''        "glm-5": {
             id: "glm-5",
             name: "GLM-5",
-            api: "openai-completions",
+            api: "openai-completions"",
             provider: "zai",
             baseUrl: "https://api.z.ai/api/paas/v4",
             compat: { "supportsDeveloperRole": false },
@@ -100,18 +108,26 @@ else:
     else:
         print("❌ 无法自动添加，请手动编辑")
         sys.exit(1)
-PYTHON_SCRIPT
+EOF
 
-  if [ $? -ne 0 ]; then
+  # 运行 Python 脚本
+  python3 /tmp/add_glm5.py "$MODELS_FILE"
+  PY_EXIT=$?
+
+  # 清理
+  rm -f /tmp/add_glm5.py
+
+  if [ $PY_EXIT -ne 0 ]; then
+    echo ""
     echo "❌ 添加失败，请手动添加"
     echo ""
     echo "编辑文件: vim $MODELS_FILE"
     echo "在 \"zai\": { 部分的最后添加："
-    cat << 'EOF'
+    cat << 'GLM5_EOF'
         "glm-5": {
             id: "glm-5",
             name: "GLM-5",
-            api: "openai-completions",
+            api: "openai-completions"",
             provider: "zai",
             baseUrl: "https://api.z.ai/api/paas/v4",
             compat: { "supportsDeveloperRole": false },
@@ -126,7 +142,7 @@ PYTHON_SCRIPT
             contextWindow: 131072,
             maxTokens: 8192,
         },
-EOF
+GLM5_EOF
     exit 1
   fi
 fi
