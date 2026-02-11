@@ -3,24 +3,6 @@
 set -e
 
 API_KEY="23a3699c8fdf4ca3a4ca15fa5a298ffc.vqjkmbpyXDHRy85i"
-GLM5_CONFIG='        "glm-5": {
-            id: "glm-5",
-            name: "GLM-5",
-            api: "openai-completions",
-            provider: "zai",
-            baseUrl: "https://api.z.ai/api/paas/v4",
-            compat: { "supportsDeveloperRole": false },
-            reasoning: false,
-            input: ["text"],
-            cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-            },
-            contextWindow: 131072,
-            maxTokens: 8192,
-        },'
 
 echo "🍎 macOS OpenClaw GLM-5 配置脚本"
 echo "=================================="
@@ -31,8 +13,8 @@ echo "🔍 查找 models.generated.js..."
 
 MODELS_FILE=""
 for dir in \
-  "$HOME/Library/Application Support/openclaw/node_modules/@mariozechner/pi-ai/dist/models.generated.js" \
   "$HOME/.nvm/versions/node"/v*/lib/node_modules/openclaw/node_modules/@mariozechner/pi-ai/dist/models.generated.js \
+  "$HOME/Library/Application Support/openclaw/node_modules/@mariozechner/pi-ai/dist/models.generated.js" \
   "/usr/local/lib/node_modules/openclaw/node_modules/@mariozechner/pi-ai/dist/models.generated.js" \
   "/opt/homebrew/lib/node_modules/openclaw/node_modules/@mariozechner/pi-ai/dist/models.generated.js"; do
   if [ -f "$dir" ]; then
@@ -60,16 +42,92 @@ else
   cp "$MODELS_FILE" "$BACKUP"
   echo "💾 已备份: $BACKUP"
 
-  # 添加 GLM-5 定义
+  # 使用 Python 脚本添加 GLM-5（更可靠）
   echo "📝 添加 GLM-5 定义..."
 
-  if grep -q '"glm-4.7-flash":' "$MODELS_FILE"; then
-    # 使用 perl 在 glm-4.7-flash 后插入
-    perl -i -pe 's/("glm-4\.7-flash":.*?\n)(\s+},)/$1$2\n'"$GLM5_CONFIG"'/' "$MODELS_FILE"
-    echo "✅ 已添加 GLM-5"
-  else
-    echo "⚠️  未找到 glm-4.7-flash"
-    echo "请手动在 zai provider 的最后添加 GLM-5 定义"
+  python3 << 'PYTHON_SCRIPT'
+import sys
+import re
+
+file_path = sys.argv[1]
+
+with open(file_path, 'r') as f:
+    content = f.read()
+
+# 检查是否已存在
+if '"glm-5":' in content:
+    print("⚠️  GLM-5 已存在")
+    sys.exit(0)
+
+# GLM-5 定义
+glm5_def = '''        "glm-5": {
+            id: "glm-5",
+            name: "GLM-5",
+            api: "openai-completions",
+            provider: "zai",
+            baseUrl: "https://api.z.ai/api/paas/v4",
+            compat: { "supportsDeveloperRole": false },
+            reasoning: false,
+            input: ["text"],
+            cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+            },
+            contextWindow: 131072,
+            maxTokens: 8192,
+        },'''
+
+# 在 glm-4.7-flash 后插入
+pattern = r'("glm-4\.7-flash": \{[^}]+\},\s*)(\n\s+\},)'
+replacement = r'\1\n' + glm5_def + r'\2'
+
+if re.search(pattern, content, re.DOTALL):
+    new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+    with open(file_path, 'w') as f:
+        f.write(new_content)
+    print("✅ 已添加 GLM-5")
+else:
+    print("⚠️  未找到 glm-4.7-flash，尝试在 zai provider 末尾添加")
+    # 备选方案：在 zai 的最后一个模型后添加
+    zai_pattern = r'("glm-4\.7-flash": \{[^}]+\},)(\s+\},\s*\n)'
+    if re.search(zai_pattern, content, re.DOTALL):
+        new_content = re.sub(zai_pattern, r'\1\n' + glm5_def + r'\2', content, flags=re.DOTALL)
+        with open(file_path, 'w') as f:
+            f.write(new_content)
+        print("✅ 已添加 GLM-5")
+    else:
+        print("❌ 无法自动添加，请手动编辑")
+        sys.exit(1)
+PYTHON_SCRIPT
+
+  if [ $? -ne 0 ]; then
+    echo "❌ 添加失败，请手动添加"
+    echo ""
+    echo "编辑文件: vim $MODELS_FILE"
+    echo "在 \"zai\": { 部分的最后添加："
+    cat << 'EOF'
+        "glm-5": {
+            id: "glm-5",
+            name: "GLM-5",
+            api: "openai-completions",
+            provider: "zai",
+            baseUrl: "https://api.z.ai/api/paas/v4",
+            compat: { "supportsDeveloperRole": false },
+            reasoning: false,
+            input: ["text"],
+            cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+            },
+            contextWindow: 131072,
+            maxTokens: 8192,
+        },
+EOF
+    exit 1
   fi
 fi
 
@@ -94,12 +152,7 @@ if ! grep -q "ZAI_API_KEY" "$SHELL_RC" 2>/dev/null; then
   echo "✅ 已添加 API Key 到 $SHELL_RC"
 else
   echo "⚠️  ZAI_API_KEY 已存在"
-  # macOS sed 用法不同
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s/export ZAI_API_KEY=.*/export ZAI_API_KEY=\"$API_KEY\"/" "$SHELL_RC"
-  else
-    sed -i "s/export ZAI_API_KEY=.*/export ZAI_API_KEY=\"$API_KEY\"/" "$SHELL_RC"
-  fi
+  sed -i '' "s/export ZAI_API_KEY=.*/export ZAI_API_KEY=\"$API_KEY\"/" "$SHELL_RC"
   echo "✅ 已更新 API Key"
 fi
 
